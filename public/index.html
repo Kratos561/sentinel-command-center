@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SENTINEL | Command Center</title>
+    <meta name="description" content="Sentinel v7.1 Ghost Trader - Real-time trading dashboard with AI analysis">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+    <!-- SCANLINE OVERLAY -->
+    <div class="scanline-overlay"></div>
+
+    <!-- HEADER -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo-container">
+                <div class="logo-pulse"></div>
+                <span class="logo-text">SENTINEL</span>
+                <span class="logo-version" id="version">v7.1</span>
+            </div>
+            <div class="header-subtitle">GHOST TRADER | COMMAND CENTER</div>
+        </div>
+        <div class="header-right">
+            <div class="status-indicator" id="connectionStatus">
+                <div class="status-dot connected"></div>
+                <span>LIVE</span>
+            </div>
+            <div class="header-time" id="headerTime">--:--:--</div>
+            <div class="header-cycle">CYCLE <span id="cycleCount">-</span></div>
+        </div>
+    </header>
+
+    <!-- MAIN GRID -->
+    <main class="dashboard-grid">
+
+        <!-- ROW 1: Key Metrics -->
+        <section class="metrics-row">
+            <div class="metric-card balance-card">
+                <div class="metric-label">PORTFOLIO BALANCE</div>
+                <div class="metric-value" id="balance">$---.--</div>
+                <div class="metric-sub" id="pnl">P&L: ---</div>
+                <div class="metric-spark" id="balanceSpark"></div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">WIN RATE</div>
+                <div class="metric-value" id="winRate">--%</div>
+                <div class="metric-sub" id="winLoss">--W / --L</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">TOTAL TRADES</div>
+                <div class="metric-value" id="totalTrades">--</div>
+                <div class="metric-sub" id="openPositions">-- open</div>
+            </div>
+            <div class="metric-card uptime-card">
+                <div class="metric-label">UPTIME</div>
+                <div class="metric-value" id="uptime">--h --m</div>
+                <div class="metric-sub">NORTHFLANK 24/7</div>
+            </div>
+        </section>
+
+        <!-- ROW 2: Market + Trades -->
+        <section class="content-row">
+            <!-- MARKET PANEL -->
+            <div class="panel market-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">📡</div>
+                    <h2>MARKET OVERVIEW</h2>
+                    <div class="panel-live">LIVE</div>
+                </div>
+                <div class="market-grid" id="marketGrid">
+                    <!-- Filled by JS -->
+                </div>
+            </div>
+
+            <!-- TRADES PANEL -->
+            <div class="panel trades-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">📊</div>
+                    <h2>TRADE OPERATIONS</h2>
+                    <div class="panel-badge" id="tradesBadge">0</div>
+                </div>
+                <div class="trades-tabs">
+                    <button class="tab active" data-tab="open">OPEN</button>
+                    <button class="tab" data-tab="closed">HISTORY</button>
+                </div>
+                <div class="trades-list" id="tradesList">
+                    <!-- Filled by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ROW 3: Price Chart + AI Reflections -->
+        <section class="content-row">
+            <!-- PRICE CHART -->
+            <div class="panel chart-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">📈</div>
+                    <h2>PRICE TRACKER</h2>
+                    <div class="chart-filters">
+                        <button class="chart-btn active" data-asset="ORO">ORO</button>
+                        <button class="chart-btn" data-asset="BITCOIN">BTC</button>
+                        <button class="chart-btn" data-asset="ETHEREUM">ETH</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- AI REFLECTIONS -->
+            <div class="panel ai-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">🧠</div>
+                    <h2>AI REFLECTIONS</h2>
+                </div>
+                <div class="ai-content" id="aiContent">
+                    <div class="ai-empty">
+                        <div class="ai-brain-icon">🧠</div>
+                        <p>Waiting for auto-reflection data...</p>
+                        <span>Groq analyzes performance every 12 hours</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ROW 4: System Status Bar -->
+        <section class="status-bar">
+            <div class="status-item">
+                <span class="status-label">NORTHFLANK</span>
+                <span class="status-value" id="nfStatus">●</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">SUPABASE</span>
+                <span class="status-value" id="dbStatus">●</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">GROQ AI</span>
+                <span class="status-value" id="aiStatus">●</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">TELEGRAM</span>
+                <span class="status-value" id="tgStatus">●</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">TWELVEDATA</span>
+                <span class="status-value" id="tdStatus">●</span>
+            </div>
+            <div class="status-item last-update">
+                <span class="status-label">LAST UPDATE</span>
+                <span class="status-value" id="lastUpdate">--:--:--</span>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+
+</html>
