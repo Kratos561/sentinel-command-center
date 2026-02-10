@@ -1,13 +1,49 @@
 // ============================================
-// SENTINEL COMMAND CENTER - Frontend Logic
+// SENTINEL COMMAND CENTER - Direct Supabase Client
+// 100% Client-Side - No Server Needed
 // ============================================
 
-const API_BASE = '';  // Same origin
-const REFRESH_INTERVAL = 30000; // 30 seconds
+const SUPABASE_URL = 'https://udqxvsgdgxgtnhxxxcgv.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkcXh2c2dkZ3hndG5oeHh4Y2d2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODcwNTM0NCwiZXhwIjoyMDg0MjgxMzQ0fQ.mUKPJvTeG2MU4Fxfddcbcx2Q7H8EDuXcDtWAbHGvT48';
+const SENTINEL_HEALTH = 'https://p01--sentinel-advance--blnvcmgxk6zh.code.run';
+const REFRESH_INTERVAL = 30000;
+
 let currentTab = 'open';
 let selectedAsset = 'ORO';
 let priceHistoryData = [];
 let previousBalance = null;
+
+// --- SUPABASE DIRECT QUERY ---
+async function supabaseQuery(table, params = '') {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
+            headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+    } catch (e) {
+        console.warn(`Supabase query failed (${table}):`, e.message);
+        return null;
+    }
+}
+
+// --- SENTINEL HEALTH CHECK ---
+async function fetchSentinelHealth() {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(SENTINEL_HEALTH, { signal: controller.signal });
+        clearTimeout(timeout);
+        return await res.json();
+    } catch (e) {
+        console.warn('Sentinel health check failed (CORS or offline):', e.message);
+        return null;
+    }
+}
 
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,8 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupTabs();
     setupChartFilters();
-    fetchFullData();
-    setInterval(fetchFullData, REFRESH_INTERVAL);
+    fetchAllData();
+    setInterval(fetchAllData, REFRESH_INTERVAL);
 });
 
 // --- CLOCK ---
@@ -51,33 +87,64 @@ function setupChartFilters() {
     });
 }
 
-// --- FETCH DATA ---
-async function fetchFullData() {
+// --- FETCH ALL DATA ---
+async function fetchAllData() {
     try {
-        const response = await fetch(`${API_BASE}/api/full`);
-        const data = await response.json();
+        const [health, portfolio, trades, latestPrices, priceHistory, reflections] = await Promise.all([
+            fetchSentinelHealth(),
+            supabaseQuery('ghost_portfolio', 'select=*&order=id.desc&limit=1'),
+            supabaseQuery('ghost_trades', 'select=id,asset,direction,entry_price,exit_price,pnl,status,size,opened_at,closed_at&order=opened_at.desc&limit=50'),
+            supabaseQuery('ghost_prices', 'select=symbol,price,trend,momentum,volatility,recorded_at&order=recorded_at.desc&limit=3'),
+            supabaseQuery('ghost_prices', 'select=symbol,price,recorded_at&order=recorded_at.desc&limit=200'),
+            supabaseQuery('ghost_reflections', 'select=*&order=created_at.desc&limit=5')
+        ]);
 
-        updateSentinelStatus(data.sentinel);
-        updatePortfolio(data.portfolio);
-        updateMarket(data.latestPrices);
+        // Update Sentinel status
+        updateSentinelStatus(health);
 
-        window._lastTrades = data.trades;
-        renderTrades(data.trades);
+        // Update portfolio
+        if (portfolio && portfolio.length > 0) {
+            updatePortfolio(portfolio[0]);
+        }
 
-        priceHistoryData = data.priceHistory || [];
+        // Update market
+        if (latestPrices && latestPrices.length > 0) {
+            // Deduplicate - get latest per symbol
+            const seen = {};
+            const uniquePrices = latestPrices.filter(p => {
+                if (seen[p.symbol]) return false;
+                seen[p.symbol] = true;
+                return true;
+            });
+            updateMarket(uniquePrices);
+        }
+
+        // Update trades
+        window._lastTrades = trades || [];
+        renderTrades(window._lastTrades);
+
+        // Update chart
+        priceHistoryData = priceHistory || [];
         renderChart(priceHistoryData);
 
-        renderReflections(data.reflections);
+        // Update reflections
+        renderReflections(reflections);
 
-        updateStatusBar(data);
+        // Update status bar
+        updateStatusBar({
+            sentinel: health,
+            portfolio: portfolio && portfolio.length > 0 ? portfolio[0] : null,
+            trades: trades,
+            latestPrices: latestPrices
+        });
+
         document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour12: false });
 
-        // Connection status
         const dot = document.querySelector('.status-dot');
         dot.className = 'status-dot connected';
 
     } catch (e) {
-        console.error('Fetch error:', e);
+        console.error('Data fetch error:', e);
         const dot = document.querySelector('.status-dot');
         dot.className = 'status-dot disconnected';
     }
@@ -85,9 +152,12 @@ async function fetchFullData() {
 
 // --- UPDATE SENTINEL STATUS ---
 function updateSentinelStatus(sentinel) {
-    if (!sentinel) return;
-
-    document.getElementById('version').textContent = 'v' + (sentinel.version || '7.1');
+    if (!sentinel) {
+        // Infer from Supabase data
+        document.getElementById('version').textContent = 'v7.2';
+        return;
+    }
+    document.getElementById('version').textContent = 'v' + (sentinel.version || '7.2');
     document.getElementById('cycleCount').textContent = sentinel.cycle || '-';
 
     const upSec = sentinel.uptime || 0;
@@ -106,17 +176,16 @@ function updatePortfolio(portfolio) {
     const totalTrades = parseInt(portfolio.total_trades) || 0;
     const wins = parseInt(portfolio.wins) || 0;
     const losses = parseInt(portfolio.losses) || 0;
-    const winRate = totalTrades > 0 ? ((wins / Math.max(wins + losses, 1)) * 100).toFixed(1) : '0.0';
+    const winRate = (wins + losses) > 0 ? ((wins / (wins + losses)) * 100).toFixed(1) : '0.0';
 
-    // Balance with flash animation
     const balanceEl = document.getElementById('balance');
     if (previousBalance !== null && balance !== previousBalance) {
         balanceEl.classList.remove('flash-up', 'flash-down');
-        void balanceEl.offsetWidth; // Trigger reflow
+        void balanceEl.offsetWidth;
         balanceEl.classList.add(balance > previousBalance ? 'flash-up' : 'flash-down');
     }
     previousBalance = balance;
-    balanceEl.textContent = `$${balance.toFixed(2)}`;
+    balanceEl.textContent = `$${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     const pnlEl = document.getElementById('pnl');
     pnlEl.textContent = `P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
@@ -138,18 +207,19 @@ function updateMarket(prices) {
     const icons = { 'ORO': '🪙', 'BITCOIN': '₿', 'ETHEREUM': 'Ξ' };
 
     grid.innerHTML = prices.map(p => {
-        const isBull = p.trend && (p.trend.includes('ALCISTA'));
-        const isBear = p.trend && (p.trend.includes('BAJISTA'));
+        const trend = p.trend || 'LATERAL';
+        const isBull = trend.includes('ALCISTA');
+        const isBear = trend.includes('BAJISTA');
         const trendClass = isBull ? 'bullish' : isBear ? 'bearish' : 'lateral';
-        const trendLabel = p.trend || 'LATERAL';
-        const momColor = parseFloat(p.momentum) >= 0 ? 'var(--green)' : 'var(--red)';
+        const momValue = parseFloat(p.momentum) || 0;
+        const momColor = momValue >= 0 ? 'var(--green)' : 'var(--red)';
 
         return `
             <div class="market-item">
                 <div class="market-name"><span class="asset-icon">${icons[p.symbol] || '📊'}</span>${p.symbol}</div>
-                <div class="market-trend ${trendClass}">${trendLabel}</div>
+                <div class="market-trend ${trendClass}">${trend}</div>
                 <div class="market-price">$${parseFloat(p.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div class="market-momentum" style="color:${momColor}">${parseFloat(p.momentum) >= 0 ? '+' : ''}${p.momentum}%</div>
+                <div class="market-momentum" style="color:${momColor}">${momValue >= 0 ? '+' : ''}${p.momentum}%</div>
                 <div class="market-volatility">σ ${p.volatility}%</div>
             </div>
         `;
@@ -182,13 +252,12 @@ function renderTrades(trades) {
         const pnlClass = t.status === 'OPEN' ? 'pending' : (pnl >= 0 ? 'positive' : 'negative');
         const pnlText = t.status === 'OPEN' ? 'ACTIVE' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
         const dirClass = t.direction === 'LONG' ? 'long' : 'short';
-        const time = new Date(t.opened_at).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour12: false, hour: '2-digit', minute: '2-digit' });
 
         return `
             <div class="trade-item">
                 <span class="trade-direction ${dirClass}">${t.direction}</span>
                 <span class="trade-asset">${t.asset}</span>
-                <span class="trade-price">$${parseFloat(t.entry_price).toLocaleString()}</span>
+                <span class="trade-price">$${parseFloat(t.entry_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                 <span class="trade-pnl ${pnlClass}">${pnlText}</span>
             </div>
         `;
@@ -200,19 +269,18 @@ function renderChart(data) {
     const canvas = document.getElementById('priceChart');
     const ctx = canvas.getContext('2d');
 
-    // Set canvas size
     const container = canvas.parentElement;
     canvas.width = container.clientWidth;
     canvas.height = container.clientHeight;
 
-    // Filter for selected asset
     const assetData = data.filter(d => d.symbol === selectedAsset)
         .reverse()
         .slice(-60);
 
     if (assetData.length < 2) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#64748b';
-        ctx.font = '14px JetBrains Mono';
+        ctx.font = '14px "JetBrains Mono", monospace';
         ctx.textAlign = 'center';
         ctx.fillText('Collecting data...', canvas.width / 2, canvas.height / 2);
         return;
@@ -223,14 +291,13 @@ function renderChart(data) {
     const maxPrice = Math.max(...prices) * 1.0001;
     const range = maxPrice - minPrice || 1;
 
-    const padding = { top: 30, right: 60, bottom: 30, left: 20 };
+    const padding = { top: 30, right: 70, bottom: 30, left: 20 };
     const chartW = canvas.width - padding.left - padding.right;
     const chartH = canvas.height - padding.top - padding.bottom;
 
-    // Clear
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Grid lines
+    // Grid
     ctx.strokeStyle = 'rgba(100, 116, 139, 0.1)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
@@ -240,20 +307,19 @@ function renderChart(data) {
         ctx.lineTo(canvas.width - padding.right, y);
         ctx.stroke();
 
-        // Price labels
         const priceLabel = (maxPrice - (range / 4) * i).toFixed(2);
         ctx.fillStyle = '#64748b';
-        ctx.font = '10px JetBrains Mono';
+        ctx.font = '10px "JetBrains Mono", monospace';
         ctx.textAlign = 'left';
         ctx.fillText(priceLabel, canvas.width - padding.right + 8, y + 4);
     }
 
-    // Gradient fill
-    const gradient = ctx.createLinearGradient(0, padding.top, 0, canvas.height - padding.bottom);
     const lastPrice = prices[prices.length - 1];
     const firstPrice = prices[0];
     const isUp = lastPrice >= firstPrice;
 
+    // Gradient fill
+    const gradient = ctx.createLinearGradient(0, padding.top, 0, canvas.height - padding.bottom);
     if (isUp) {
         gradient.addColorStop(0, 'rgba(16, 185, 129, 0.15)');
         gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
@@ -262,7 +328,6 @@ function renderChart(data) {
         gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
     }
 
-    // Draw fill
     ctx.beginPath();
     prices.forEach((price, i) => {
         const x = padding.left + (i / (prices.length - 1)) * chartW;
@@ -276,7 +341,7 @@ function renderChart(data) {
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // Draw line
+    // Line
     ctx.beginPath();
     ctx.strokeStyle = isUp ? '#10b981' : '#ef4444';
     ctx.lineWidth = 2;
@@ -307,23 +372,22 @@ function renderChart(data) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Current price label
+    // Price label
     ctx.fillStyle = '#f1f5f9';
-    ctx.font = 'bold 12px JetBrains Mono';
+    ctx.font = 'bold 12px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
     ctx.fillText(`$${lastPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, lastX - 30, lastY - 15);
 
     // Asset label
     const assetIcons = { 'ORO': '🪙 GOLD', 'BITCOIN': '₿ BTC', 'ETHEREUM': 'Ξ ETH' };
     ctx.fillStyle = '#00e5ff';
-    ctx.font = 'bold 11px JetBrains Mono';
+    ctx.font = 'bold 11px "JetBrains Mono", monospace';
     ctx.textAlign = 'left';
     ctx.fillText(assetIcons[selectedAsset] || selectedAsset, padding.left + 4, padding.top - 10);
 
-    // Change %
     const changePercent = ((lastPrice - firstPrice) / firstPrice * 100).toFixed(2);
     ctx.fillStyle = isUp ? '#10b981' : '#ef4444';
-    ctx.font = '10px JetBrains Mono';
+    ctx.font = '10px "JetBrains Mono", monospace';
     ctx.fillText(`${isUp ? '+' : ''}${changePercent}%`, padding.left + 100, padding.top - 10);
 }
 
@@ -332,14 +396,14 @@ function renderReflections(reflections) {
     const container = document.getElementById('aiContent');
 
     if (!reflections || reflections.length === 0) {
-        return; // Keep the default empty state
+        return; // Keep default empty state
     }
 
     container.innerHTML = reflections.map(r => `
         <div class="ai-reflection-card">
             <div class="ai-date">${new Date(r.created_at).toLocaleString('es-VE', { timeZone: 'America/Caracas' })}</div>
-            <div class="ai-analysis">${r.analysis || 'No analysis available'}</div>
-            ${r.recommendation ? `<div class="ai-recommendation">💡 ${r.recommendation}</div>` : ''}
+            <div class="ai-analysis">${escapeHtml(r.analysis || 'No analysis available')}</div>
+            ${r.recommendation ? `<div class="ai-recommendation">💡 ${escapeHtml(r.recommendation)}</div>` : ''}
         </div>
     `).join('');
 }
@@ -352,18 +416,27 @@ function updateStatusBar(data) {
     const tg = document.getElementById('tgStatus');
     const td = document.getElementById('tdStatus');
 
-    nf.textContent = data.sentinel ? '● ONLINE' : '● OFFLINE';
-    nf.className = data.sentinel ? 'status-value' : 'status-value offline';
+    // Northflank status from direct health check
+    nf.textContent = data.sentinel ? '● ONLINE' : '● CHECKING...';
+    nf.className = data.sentinel ? 'status-value' : 'status-value';
 
+    // Supabase status from portfolio fetch
     db.textContent = data.portfolio ? '● CONNECTED' : '● ERROR';
     db.className = data.portfolio ? 'status-value' : 'status-value offline';
 
     ai.textContent = '● READY';
     tg.textContent = '● ACTIVE';
-    td.textContent = data.latestPrices?.length > 0 ? '● FEEDING' : '● WAITING';
+    td.textContent = data.latestPrices && data.latestPrices.length > 0 ? '● FEEDING' : '● WAITING';
 }
 
-// Handle window resize for chart
+// --- UTILITIES ---
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Handle resize for chart
 window.addEventListener('resize', () => {
     if (priceHistoryData.length > 0) {
         renderChart(priceHistoryData);
