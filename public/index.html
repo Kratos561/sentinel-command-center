@@ -114,6 +114,78 @@
         .scrollbar-hide::-webkit-scrollbar {
             display: none;
         }
+
+        @keyframes flash-green {
+            0% {
+                background: rgba(52, 211, 153, 0.3);
+            }
+
+            100% {
+                background: transparent;
+            }
+        }
+
+        @keyframes flash-red {
+            0% {
+                background: rgba(248, 113, 113, 0.3);
+            }
+
+            100% {
+                background: transparent;
+            }
+        }
+
+        @keyframes flash-gold {
+            0% {
+                background: rgba(212, 175, 55, 0.25);
+            }
+
+            100% {
+                background: transparent;
+            }
+        }
+
+        .flash-up {
+            animation: flash-green 0.8s ease-out;
+        }
+
+        .flash-down {
+            animation: flash-red 0.8s ease-out;
+        }
+
+        .flash-update {
+            animation: flash-gold 0.6s ease-out;
+        }
+
+        .conn-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .conn-live {
+            background: #34d399;
+            box-shadow: 0 0 6px #34d399;
+        }
+
+        .conn-poll {
+            background: #fbbf24;
+            box-shadow: 0 0 6px #fbbf24;
+        }
+
+        .conn-off {
+            background: #f87171;
+        }
+
+        .live-badge {
+            font-size: 0.55rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
     </style>
 </head>
 
@@ -123,14 +195,17 @@
     <div class="max-w-7xl mx-auto mb-6 flex justify-between items-center glass-gold p-4 rounded-xl pulse-gold">
         <div>
             <h1 class="text-2xl md:text-3xl font-bold neon-gold">🦅 SENTINEL <span
-                    class="text-xs text-gray-500 align-top">v9.0</span></h1>
-            <p class="text-xs text-gray-500">VALENTINI EDITION — ORDER FLOW SCALPER</p>
+                    class="text-xs text-gray-500 align-top">v9.0.2</span></h1>
+            <p class="text-xs text-gray-500">VALENTINI UNLEASHED — ORDER FLOW SCALPER</p>
         </div>
         <div class="text-right">
             <div id="system-status" class="text-emerald-400 font-bold flex items-center justify-end gap-2 text-sm">
-                <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full blink"></span> OPERATIONAL
+                <span id="conn-indicator" class="conn-dot conn-off"></span>
+                <span id="conn-label">CONNECTING</span>
+                <span id="live-tag" class="live-badge" style="display:none">● LIVE</span>
             </div>
-            <p id="last-update" class="text-xs text-gray-600">SYNCING...</p>
+            <p id="live-clock" class="text-xs text-gray-500 font-mono">--:--:--</p>
+            <p id="last-update" class="text-[0.6rem] text-gray-700">SYNCING...</p>
         </div>
     </div>
 
@@ -193,7 +268,7 @@
                 <div class="flex justify-between items-center"><span class="text-gray-500">AI Model</span><span
                         class="text-purple-400">Llama 3.3 70B</span></div>
                 <div class="flex justify-between items-center"><span class="text-gray-500">Monte Carlo</span><span
-                        id="mc-sims" class="text-blue-400">80 sims</span></div>
+                        id="mc-sims" class="text-blue-400">120 sims</span></div>
                 <div class="flex justify-between items-center"><span class="text-gray-500">Risk/Trade</span><span
                         class="text-emerald-400">0.5%</span></div>
                 <div class="flex justify-between items-center"><span class="text-gray-500">Session</span><span
@@ -252,132 +327,201 @@
         const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let equityChart = null;
+        let realtimeConnected = false;
+        let lastBalanceVal = null;
+        let pollInterval = null;
+        const ASSETS_LIST = ['ORO', 'YEN', 'EURO', 'BITCOIN', 'ETHEREUM', 'SOLANA', 'BNB', 'NASDAQ100'];
 
-        async function fetchAll() {
-            try {
-                // Portfolio
-                const { data: portfolio } = await sb.from('ghost_portfolio').select('*').order('id', { ascending: false }).limit(1);
-                if (portfolio && portfolio[0]) {
-                    const p = portfolio[0];
-                    const bal = parseFloat(p.balance), start = parseFloat(p.start_balance);
-                    const pnl = bal - start, wr = (p.wins + p.losses) > 0 ? ((p.wins / (p.wins + p.losses)) * 100).toFixed(1) : '0';
-                    document.getElementById('balance').textContent = '$' + bal.toFixed(2);
-                    document.getElementById('total-pnl').textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
-                    document.getElementById('total-pnl').className = 'text-xl font-bold ' + (pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
-                    document.getElementById('win-rate').textContent = wr + '%';
-                    document.getElementById('wins').textContent = p.wins;
-                    document.getElementById('losses').textContent = p.losses;
-                    document.getElementById('total-trades').querySelector('#wins').textContent = p.wins;
-                    document.getElementById('total-trades').querySelector('#losses').textContent = p.losses;
-                }
+        // ═══════ LIVE CLOCK (1s) ═══════
+        function tickClock() {
+            const now = new Date();
+            const utc = now.toISOString().substring(11, 19);
+            const local = now.toLocaleTimeString();
+            document.getElementById('live-clock').textContent = `${local} | UTC ${utc}`;
+            updateSessionDisplay();
+        }
+        setInterval(tickClock, 1000);
+        tickClock();
 
-                // Open trades
-                const { data: openTrades } = await sb.from('ghost_trades').select('*').eq('status', 'OPEN').order('opened_at', { ascending: false });
-                const openList = document.getElementById('open-positions-list');
-                document.getElementById('open-pos').textContent = openTrades ? openTrades.length : 0;
-                if (openTrades && openTrades.length > 0) {
-                    openList.innerHTML = openTrades.map(t => {
-                        const icon = t.direction === 'LONG' ? '🟢' : '🔴';
-                        return `<div class="flex justify-between items-center glass rounded-lg p-2">
-                    <div>${icon} <span class="font-bold text-white">${t.direction}</span> ${t.asset}</div>
+        // ═══════ SESSION DISPLAY ═══════
+        function updateSessionDisplay() {
+            const h = new Date().getUTCHours(), m = new Date().getUTCMinutes();
+            const isOverlap = h >= 13 && h <= 16;
+            const isLondon = h >= 7 && h < 13;
+            const isNY = h > 16 && h <= 22;
+            const isActive = h >= 7 && h <= 22;
+            let label = 'CLOSED', cls = 'text-red-400';
+            if (isOverlap) { label = 'OVERLAP ⚡'; cls = 'text-amber-400 font-bold'; }
+            else if (isLondon) { label = 'LONDON 🇬🇧'; cls = 'text-blue-400'; }
+            else if (isNY) { label = 'NEW YORK 🇺🇸'; cls = 'text-emerald-400'; }
+            document.getElementById('session-status').textContent = label;
+            document.getElementById('session-status').className = cls;
+            // Cooldowns
+            const londonCool = (h === 7 && m < 30);
+            const nyCool = (h === 14 && m >= 30) || (h === 15 && m === 0);
+            const coolEl = document.getElementById('ny-cooldown');
+            if (londonCool) { coolEl.textContent = 'LONDON ⏳'; coolEl.className = 'text-blue-400'; }
+            else if (nyCool) { coolEl.textContent = 'NY ⏳'; coolEl.className = 'text-amber-400'; }
+            else { coolEl.textContent = 'OFF'; coolEl.className = 'text-gray-500'; }
+        }
+
+        // ═══════ CONNECTION STATUS ═══════
+        function setConnection(type) {
+            const dot = document.getElementById('conn-indicator');
+            const lbl = document.getElementById('conn-label');
+            const tag = document.getElementById('live-tag');
+            if (type === 'live') { dot.className = 'conn-dot conn-live'; lbl.textContent = 'REALTIME'; tag.style.display = 'inline'; realtimeConnected = true; }
+            else if (type === 'poll') { dot.className = 'conn-dot conn-poll'; lbl.textContent = 'POLLING'; tag.style.display = 'none'; realtimeConnected = false; }
+            else { dot.className = 'conn-dot conn-off'; lbl.textContent = 'OFFLINE'; tag.style.display = 'none'; realtimeConnected = false; }
+        }
+
+        // ═══════ FLASH ANIMATION ═══════
+        function flash(elementId, type) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.classList.remove('flash-up', 'flash-down', 'flash-update');
+            void el.offsetWidth; // reflow
+            el.classList.add(type === 'up' ? 'flash-up' : type === 'down' ? 'flash-down' : 'flash-update');
+        }
+
+        // ═══════ DATA FETCHERS ═══════
+        async function fetchPortfolio() {
+            const { data } = await sb.from('ghost_portfolio').select('*').order('id', { ascending: false }).limit(1);
+            if (!data || !data[0]) return;
+            const p = data[0];
+            const bal = parseFloat(p.balance), start = parseFloat(p.start_balance);
+            const pnl = bal - start;
+            const wr = (p.wins + p.losses) > 0 ? ((p.wins / (p.wins + p.losses)) * 100).toFixed(1) : '0';
+            // Flash on balance change
+            if (lastBalanceVal !== null && bal !== lastBalanceVal) flash('balance', bal > lastBalanceVal ? 'up' : 'down');
+            lastBalanceVal = bal;
+            document.getElementById('balance').textContent = '$' + bal.toFixed(2);
+            const pnlEl = document.getElementById('total-pnl');
+            pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+            pnlEl.className = 'text-xl font-bold ' + (pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
+            document.getElementById('win-rate').textContent = wr + '%';
+            document.getElementById('wins').textContent = p.wins;
+            document.getElementById('losses').textContent = p.losses;
+        }
+
+        async function fetchTrades() {
+            // Open
+            const { data: open } = await sb.from('ghost_trades').select('*').eq('status', 'OPEN').order('opened_at', { ascending: false });
+            const openEl = document.getElementById('open-positions-list');
+            document.getElementById('open-pos').textContent = open ? open.length : 0;
+            if (open && open.length > 0) {
+                openEl.innerHTML = open.map(t => `<div class="flex justify-between items-center glass rounded-lg p-2">
+                    <div>${t.direction === 'LONG' ? '🟢' : '🔴'} <span class="font-bold text-white">${t.direction}</span> ${t.asset}</div>
                     <div class="text-right"><span class="text-gray-400">@</span> $${parseFloat(t.entry_price).toFixed(2)}<br><span class="text-[0.6rem] text-gray-600">${new Date(t.opened_at).toLocaleString()}</span></div>
+                </div>`).join('');
+                flash('open-positions-list', 'update');
+            } else { openEl.innerHTML = '<p class="text-gray-600 text-center py-4">Esperando el setup perfecto...</p>'; }
+            // Closed
+            const { data: closed } = await sb.from('ghost_trades').select('*').eq('status', 'CLOSED').order('closed_at', { ascending: false }).limit(15);
+            const histEl = document.getElementById('trade-history');
+            if (closed && closed.length > 0) {
+                histEl.innerHTML = closed.map(t => {
+                    const pnl = parseFloat(t.pnl);
+                    return `<div class="flex justify-between items-center py-1 border-b border-gray-800/50">
+                    <span>${pnl >= 0 ? '💰' : '💸'} ${t.direction} ${t.asset}</span>
+                    <span class="${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'} font-bold">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(4)}</span>
                 </div>`;
-                    }).join('');
-                } else { openList.innerHTML = '<p class="text-gray-600 text-center py-4">Esperando el setup perfecto...</p>'; }
+                }).join('');
+                const eq = [15]; closed.slice().reverse().forEach(t => eq.push(eq[eq.length - 1] + parseFloat(t.pnl)));
+                renderEquityChart(eq);
+            } else { histEl.innerHTML = '<p class="text-gray-600 text-center py-4">No trades yet</p>'; }
+        }
 
-                // Closed trades
-                const { data: closedTrades } = await sb.from('ghost_trades').select('*').eq('status', 'CLOSED').order('closed_at', { ascending: false }).limit(15);
-                const histEl = document.getElementById('trade-history');
-                if (closedTrades && closedTrades.length > 0) {
-                    histEl.innerHTML = closedTrades.map(t => {
-                        const pnl = parseFloat(t.pnl);
-                        const icon = pnl >= 0 ? '💰' : '💸';
-                        const color = pnl >= 0 ? 'text-emerald-400' : 'text-red-400';
-                        return `<div class="flex justify-between items-center py-1 border-b border-gray-800/50">
-                    <span>${icon} ${t.direction} ${t.asset}</span>
-                    <span class="${color} font-bold">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(4)}</span>
-                </div>`;
-                    }).join('');
-
-                    // Equity curve
-                    const equityData = [15];
-                    closedTrades.slice().reverse().forEach(t => { equityData.push(equityData[equityData.length - 1] + parseFloat(t.pnl)); });
-                    renderEquityChart(equityData);
-                } else { histEl.innerHTML = '<p class="text-gray-600 text-center py-4">No trades yet</p>'; }
-
-                // Prices (market radar)
-                const { data: prices } = await sb.from('ghost_prices').select('symbol, price, trend, momentum, volatility, recorded_at').order('recorded_at', { ascending: false }).limit(50);
-                const latest = {};
-                if (prices) { prices.forEach(p => { if (!latest[p.symbol]) latest[p.symbol] = p; }); }
-                const tableEl = document.getElementById('market-table');
-                const assets = ['ORO', 'YEN', 'EURO', 'BITCOIN', 'ETHEREUM', 'SOLANA', 'BNB', 'NASDAQ100'];
-                tableEl.innerHTML = assets.map(name => {
-                    const d = latest[name];
-                    if (!d) return `<tr class="border-b border-gray-800/30"><td class="py-1.5 text-gray-600">${name}</td><td colspan="5" class="text-center text-gray-700">—</td></tr>`;
-                    const mom = parseFloat(d.momentum || 0);
-                    const vol = parseFloat(d.volatility || 0);
-                    const momColor = mom > 0 ? 'text-emerald-400' : mom < 0 ? 'text-red-400' : 'text-gray-500';
-                    // Determine market state from trend
-                    let state = 'BALANCED', stateBadge = 'badge-value';
-                    if (d.trend === 'FUERTE ALCISTA' || d.trend === 'EXPLORING_HIGH') { state = 'EXPLORING ↑'; stateBadge = 'badge-explore'; }
-                    else if (d.trend === 'FUERTE BAJISTA' || d.trend === 'EXPLORING_LOW') { state = 'EXPLORING ↓'; stateBadge = 'badge-aggr'; }
-                    else if (d.trend === 'ALCISTA') { state = 'BULLISH'; stateBadge = 'badge-explore'; }
-                    else if (d.trend === 'BAJISTA') { state = 'BEARISH'; stateBadge = 'badge-aggr'; }
-                    // RSI approx from momentum
-                    const rsiApprox = Math.max(20, Math.min(80, 50 + mom * 10)).toFixed(0);
-                    const rsiColor = rsiApprox > 65 ? 'text-red-400' : rsiApprox < 35 ? 'text-emerald-400' : 'text-gray-400';
-                    // Signals
-                    let signals = '';
-                    if (vol > 1.5) signals += '<span class="badge badge-aggr">⚡AGR</span> ';
-                    if (vol < 0.3 && vol > 0) signals += '<span class="badge badge-absorb">🧲ABS</span> ';
-                    return `<tr class="border-b border-gray-800/30 hover:bg-white/5">
+        async function fetchPrices() {
+            const { data } = await sb.from('ghost_prices').select('symbol, price, trend, momentum, volatility, recorded_at').order('recorded_at', { ascending: false }).limit(50);
+            const latest = {};
+            if (data) data.forEach(p => { if (!latest[p.symbol]) latest[p.symbol] = p; });
+            const el = document.getElementById('market-table');
+            el.innerHTML = ASSETS_LIST.map(name => {
+                const d = latest[name];
+                if (!d) return `<tr class="border-b border-gray-800/30"><td class="py-1.5 text-gray-600">${name}</td><td colspan="5" class="text-center text-gray-700">—</td></tr>`;
+                const mom = parseFloat(d.momentum || 0), vol = parseFloat(d.volatility || 0);
+                const momColor = mom > 0 ? 'text-emerald-400' : mom < 0 ? 'text-red-400' : 'text-gray-500';
+                let state = 'BALANCED', sb2 = 'badge-value';
+                if (d.trend === 'FUERTE ALCISTA' || d.trend === 'EXPLORING_HIGH') { state = 'EXPLORING ↑'; sb2 = 'badge-explore'; }
+                else if (d.trend === 'FUERTE BAJISTA' || d.trend === 'EXPLORING_LOW') { state = 'EXPLORING ↓'; sb2 = 'badge-aggr'; }
+                else if (d.trend === 'ALCISTA') { state = 'BULLISH'; sb2 = 'badge-explore'; }
+                else if (d.trend === 'BAJISTA') { state = 'BEARISH'; sb2 = 'badge-aggr'; }
+                const rsi = Math.max(20, Math.min(80, 50 + mom * 10)).toFixed(0);
+                const rc = rsi > 65 ? 'text-red-400' : rsi < 35 ? 'text-emerald-400' : 'text-gray-400';
+                let sig = '';
+                if (vol > 1.5) sig += '<span class="badge badge-aggr">⚡AGR</span> ';
+                if (vol < 0.3 && vol > 0) sig += '<span class="badge badge-absorb">🧲ABS</span> ';
+                return `<tr class="border-b border-gray-800/30 hover:bg-white/5">
                 <td class="py-1.5 font-bold text-white">${name}</td>
                 <td class="text-right text-gray-300">$${parseFloat(d.price).toFixed(d.price > 100 ? 2 : 4)}</td>
                 <td class="text-right ${momColor}">${mom > 0 ? '+' : ''}${mom.toFixed(2)}%</td>
-                <td class="text-center"><span class="badge ${stateBadge}">${state}</span></td>
-                <td class="text-center ${rsiColor}">${rsiApprox}</td>
-                <td class="text-center">${signals || '<span class="text-gray-700">—</span>'}</td>
-            </tr>`;
-                }).join('');
+                <td class="text-center"><span class="badge ${sb2}">${state}</span></td>
+                <td class="text-center ${rc}">${rsi}</td>
+                <td class="text-center">${sig || '<span class="text-gray-700">—</span>'}</td></tr>`;
+            }).join('');
+        }
 
-                // Reflection
-                const { data: reflections } = await sb.from('ghost_reflections').select('*').order('created_at', { ascending: false }).limit(1);
-                if (reflections && reflections[0]) {
-                    document.getElementById('ai-reflection').textContent = reflections[0].analysis;
-                    document.getElementById('reflection-time').textContent = 'Last: ' + new Date(reflections[0].created_at).toLocaleString();
-                }
+        async function fetchReflection() {
+            const { data } = await sb.from('ghost_reflections').select('*').order('created_at', { ascending: false }).limit(1);
+            if (data && data[0]) {
+                document.getElementById('ai-reflection').textContent = data[0].analysis;
+                document.getElementById('reflection-time').textContent = 'Last: ' + new Date(data[0].created_at).toLocaleString();
+            }
+        }
 
-                // Session status
-                const h = new Date().getUTCHours();
-                const isActive = h >= 7 && h <= 22;
-                const isOverlap = h >= 13 && h <= 16;
-                document.getElementById('session-status').textContent = isOverlap ? 'OVERLAP (GOLDEN)' : isActive ? 'ACTIVE' : 'CLOSED';
-                document.getElementById('session-status').className = isOverlap ? 'text-amber-400 font-bold' : isActive ? 'text-emerald-400' : 'text-red-400';
-
-                // NY cooldown
-                const m = new Date().getUTCMinutes();
-                const nyCooldown = (h === 14 && m >= 30) || (h === 15 && m < 0);
-                document.getElementById('ny-cooldown').textContent = nyCooldown ? 'ACTIVE ⏳' : 'OFF';
-                document.getElementById('ny-cooldown').className = nyCooldown ? 'text-amber-400' : 'text-gray-500';
-
+        async function fetchAll() {
+            try {
+                await Promise.all([fetchPortfolio(), fetchTrades(), fetchPrices(), fetchReflection()]);
                 document.getElementById('last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
             } catch (e) { console.error('Fetch error:', e); }
         }
 
+        // ═══════ SUPABASE REALTIME ═══════
+        function setupRealtime() {
+            try {
+                const channel = sb.channel('sentinel-live')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_portfolio' }, () => { fetchPortfolio(); flash('balance', 'update'); })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_trades' }, () => { fetchTrades(); flash('trade-history', 'update'); })
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_prices' }, () => { fetchPrices(); })
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_reflections' }, () => { fetchReflection(); flash('ai-reflection', 'update'); })
+                    .subscribe((status) => {
+                        if (status === 'SUBSCRIBED') { setConnection('live'); setAdaptivePolling(15000); }
+                        else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') { setConnection('poll'); setAdaptivePolling(5000); }
+                    });
+            } catch (e) { console.warn('Realtime failed, using polling:', e); setConnection('poll'); setAdaptivePolling(5000); }
+        }
+
+        // ═══════ ADAPTIVE POLLING ═══════
+        function setAdaptivePolling(ms) {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(fetchAll, ms);
+        }
+        function checkSessionPolling() {
+            const h = new Date().getUTCHours();
+            const isActive = h >= 7 && h <= 22;
+            if (realtimeConnected) { setAdaptivePolling(isActive ? 10000 : 20000); }
+            else { setAdaptivePolling(isActive ? 5000 : 15000); }
+        }
+        setInterval(checkSessionPolling, 60000);
+
+        // ═══════ EQUITY CHART ═══════
         function renderEquityChart(data) {
             const ctx = document.getElementById('equityChart').getContext('2d');
             if (equityChart) equityChart.destroy();
-            const lastVal = data[data.length - 1];
-            const color = lastVal >= 15 ? 'rgba(52,211,153,' : 'rgba(248,113,113,';
+            const last = data[data.length - 1];
+            const c = last >= 15 ? 'rgba(52,211,153,' : 'rgba(248,113,113,';
             equityChart = new Chart(ctx, {
                 type: 'line',
-                data: { labels: data.map((_, i) => i === 0 ? 'Start' : '#' + i), datasets: [{ data, borderColor: color + '1)', backgroundColor: color + '0.1)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 }] },
-                options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#555', callback: v => '$' + v.toFixed(2) } } } }
+                data: { labels: data.map((_, i) => i === 0 ? 'Start' : '#' + i), datasets: [{ data, borderColor: c + '1)', backgroundColor: c + '0.1)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 }] },
+                options: { responsive: true, animation: { duration: 600 }, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#555', callback: v => '$' + v.toFixed(2) } } } }
             });
         }
 
+        // ═══════ BOOT ═══════
         fetchAll();
-        setInterval(fetchAll, 30000);
+        setupRealtime();
+        checkSessionPolling();
     </script>
 </body>
 
