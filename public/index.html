@@ -384,15 +384,18 @@
             el.classList.add(type === 'up' ? 'flash-up' : type === 'down' ? 'flash-down' : 'flash-update');
         }
 
-        // ═══════ DATA FETCHERS ═══════
+        // ═══════ FETCH WITH TIMEOUT ═══════
+        function withTimeout(promise, ms) {
+            return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+        }
+
         async function fetchPortfolio() {
-            const { data } = await sb.from('ghost_portfolio').select('*').order('id', { ascending: false }).limit(1);
+            const { data } = await withTimeout(sb.from('ghost_portfolio').select('*').order('id', { ascending: false }).limit(1), 8000);
             if (!data || !data[0]) return;
             const p = data[0];
             const bal = parseFloat(p.balance), start = parseFloat(p.start_balance);
             const pnl = bal - start;
             const wr = (p.wins + p.losses) > 0 ? ((p.wins / (p.wins + p.losses)) * 100).toFixed(1) : '0';
-            // Flash on balance change
             if (lastBalanceVal !== null && bal !== lastBalanceVal) flash('balance', bal > lastBalanceVal ? 'up' : 'down');
             lastBalanceVal = bal;
             document.getElementById('balance').textContent = '$' + bal.toFixed(2);
@@ -405,8 +408,7 @@
         }
 
         async function fetchTrades() {
-            // Open
-            const { data: open } = await sb.from('ghost_trades').select('*').eq('status', 'OPEN').order('opened_at', { ascending: false });
+            const { data: open } = await withTimeout(sb.from('ghost_trades').select('*').eq('status', 'OPEN').order('opened_at', { ascending: false }), 8000);
             const openEl = document.getElementById('open-positions-list');
             document.getElementById('open-pos').textContent = open ? open.length : 0;
             if (open && open.length > 0) {
@@ -416,8 +418,7 @@
                 </div>`).join('');
                 flash('open-positions-list', 'update');
             } else { openEl.innerHTML = '<p class="text-gray-600 text-center py-4">Esperando el setup perfecto...</p>'; }
-            // Closed
-            const { data: closed } = await sb.from('ghost_trades').select('*').eq('status', 'CLOSED').order('closed_at', { ascending: false }).limit(15);
+            const { data: closed } = await withTimeout(sb.from('ghost_trades').select('*').eq('status', 'CLOSED').order('closed_at', { ascending: false }).limit(15), 8000);
             const histEl = document.getElementById('trade-history');
             if (closed && closed.length > 0) {
                 histEl.innerHTML = closed.map(t => {
@@ -433,7 +434,7 @@
         }
 
         async function fetchPrices() {
-            const { data } = await sb.from('ghost_prices').select('symbol, price, trend, momentum, volatility, recorded_at').order('recorded_at', { ascending: false }).limit(50);
+            const { data } = await withTimeout(sb.from('ghost_prices').select('symbol, price, trend, momentum, volatility, recorded_at').order('recorded_at', { ascending: false }).limit(50), 8000);
             const latest = {};
             if (data) data.forEach(p => { if (!latest[p.symbol]) latest[p.symbol] = p; });
             const el = document.getElementById('market-table');
@@ -463,47 +464,75 @@
         }
 
         async function fetchReflection() {
-            const { data } = await sb.from('ghost_reflections').select('*').order('created_at', { ascending: false }).limit(1);
+            const { data } = await withTimeout(sb.from('ghost_reflections').select('*').order('created_at', { ascending: false }).limit(1), 8000);
             if (data && data[0]) {
                 document.getElementById('ai-reflection').textContent = data[0].analysis;
                 document.getElementById('reflection-time').textContent = 'Last: ' + new Date(data[0].created_at).toLocaleString();
             }
         }
 
+        // ═══════ RESILIENT FETCH ALL (Promise.allSettled) ═══════
+        let lastSuccessfulFetch = Date.now();
         async function fetchAll() {
             try {
-                await Promise.all([fetchPortfolio(), fetchTrades(), fetchPrices(), fetchReflection()]);
-                document.getElementById('last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-            } catch (e) { console.error('Fetch error:', e); }
+                const results = await Promise.allSettled([fetchPortfolio(), fetchTrades(), fetchPrices(), fetchReflection()]);
+                const ok = results.filter(r => r.status === 'fulfilled').length;
+                const fail = results.filter(r => r.status === 'rejected').length;
+                lastSuccessfulFetch = Date.now();
+                if (fail > 0) {
+                    document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()} (${ok}/4 OK)`;
+                } else {
+                    document.getElementById('last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+                }
+            } catch (e) {
+                document.getElementById('last-update').textContent = 'Retry... ' + new Date().toLocaleTimeString();
+            }
+            schedulePoll(); // always schedule next poll
         }
 
         // ═══════ SUPABASE REALTIME ═══════
         function setupRealtime() {
             try {
-                const channel = sb.channel('sentinel-live')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_portfolio' }, () => { fetchPortfolio(); flash('balance', 'update'); })
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_trades' }, () => { fetchTrades(); flash('trade-history', 'update'); })
-                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_prices' }, () => { fetchPrices(); })
-                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_reflections' }, () => { fetchReflection(); flash('ai-reflection', 'update'); })
+                sb.channel('sentinel-live')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_portfolio' }, () => { fetchPortfolio().catch(() => { }); flash('balance', 'update'); })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'ghost_trades' }, () => { fetchTrades().catch(() => { }); flash('trade-history', 'update'); })
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_prices' }, () => { fetchPrices().catch(() => { }); })
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ghost_reflections' }, () => { fetchReflection().catch(() => { }); flash('ai-reflection', 'update'); })
                     .subscribe((status) => {
-                        if (status === 'SUBSCRIBED') { setConnection('live'); setAdaptivePolling(15000); }
-                        else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') { setConnection('poll'); setAdaptivePolling(5000); }
+                        if (status === 'SUBSCRIBED') { setConnection('live'); }
+                        else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') { setConnection('poll'); }
                     });
-            } catch (e) { console.warn('Realtime failed, using polling:', e); setConnection('poll'); setAdaptivePolling(5000); }
+            } catch (e) { setConnection('poll'); }
         }
 
-        // ═══════ ADAPTIVE POLLING ═══════
-        function setAdaptivePolling(ms) {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(fetchAll, ms);
-        }
-        function checkSessionPolling() {
+        // ═══════ RECURSIVE POLLING (never hangs) ═══════
+        let pollTimer = null;
+        function getInterval() {
             const h = new Date().getUTCHours();
             const isActive = h >= 7 && h <= 22;
-            if (realtimeConnected) { setAdaptivePolling(isActive ? 10000 : 20000); }
-            else { setAdaptivePolling(isActive ? 5000 : 15000); }
+            if (realtimeConnected) return isActive ? 10000 : 15000;
+            return isActive ? 5000 : 10000;
         }
-        setInterval(checkSessionPolling, 60000);
+        function schedulePoll() {
+            if (pollTimer) clearTimeout(pollTimer);
+            pollTimer = setTimeout(fetchAll, getInterval());
+        }
+
+        // ═══════ TAB FOCUS: Re-fetch immediately ═══════
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchAll();
+            }
+        });
+
+        // ═══════ STALE DATA WATCHDOG (every 30s) ═══════
+        setInterval(() => {
+            const staleSec = (Date.now() - lastSuccessfulFetch) / 1000;
+            if (staleSec > 30) {
+                document.getElementById('last-update').textContent = 'Reconnecting...';
+                fetchAll();
+            }
+        }, 30000);
 
         // ═══════ EQUITY CHART ═══════
         function renderEquityChart(data) {
@@ -521,7 +550,6 @@
         // ═══════ BOOT ═══════
         fetchAll();
         setupRealtime();
-        checkSessionPolling();
     </script>
 </body>
 
