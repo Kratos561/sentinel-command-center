@@ -1,166 +1,384 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SENTINEL | Command Center</title>
-    <meta name="description" content="Sentinel v7.2 Ghost Trader - Real-time trading dashboard with AI analysis">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <title>SENTINEL v9.0 — VALENTINI COMMAND CENTER</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #030308;
+            color: #c8ccd0;
+        }
+
+        .glass {
+            background: rgba(12, 12, 20, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(100, 130, 255, 0.12);
+        }
+
+        .glass-gold {
+            background: rgba(12, 12, 20, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(212, 175, 55, 0.25);
+        }
+
+        .neon-gold {
+            text-shadow: 0 0 8px rgba(212, 175, 55, 0.6);
+            color: #d4af37;
+        }
+
+        .neon-blue {
+            text-shadow: 0 0 6px rgba(100, 130, 255, 0.5);
+            color: #6482ff;
+        }
+
+        .grid-bg {
+            background-image: radial-gradient(circle at 50% 50%, rgba(100, 130, 255, 0.03) 0%, transparent 70%), linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 24px 24px, 24px 24px;
+        }
+
+        .blink {
+            animation: blinker 1.5s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        @keyframes pulse-gold {
+
+            0%,
+            100% {
+                box-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
+            }
+        }
+
+        .pulse-gold {
+            animation: pulse-gold 2s ease-in-out infinite;
+        }
+
+        .kill-red {
+            background: rgba(255, 50, 50, 0.15);
+            border: 1px solid rgba(255, 50, 50, 0.4);
+        }
+
+        .kill-green {
+            background: rgba(50, 255, 100, 0.1);
+            border: 1px solid rgba(50, 255, 100, 0.3);
+        }
+
+        .badge {
+            font-size: 0.6rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .badge-absorb {
+            background: rgba(147, 51, 234, 0.3);
+            color: #c084fc;
+            border: 1px solid rgba(147, 51, 234, 0.4);
+        }
+
+        .badge-aggr {
+            background: rgba(249, 115, 22, 0.3);
+            color: #fb923c;
+            border: 1px solid rgba(249, 115, 22, 0.4);
+        }
+
+        .badge-value {
+            background: rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+        }
+
+        .badge-explore {
+            background: rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
 </head>
 
-<body>
-    <!-- SCANLINE OVERLAY -->
-    <div class="scanline-overlay"></div>
+<body class="grid-bg min-h-screen p-3 md:p-6">
 
     <!-- HEADER -->
-    <header class="header">
-        <div class="header-left">
-            <div class="logo-container">
-                <div class="logo-pulse"></div>
-                <span class="logo-text">SENTINEL</span>
-                <span class="logo-version" id="version">v7.1</span>
-            </div>
-            <div class="header-subtitle">GHOST TRADER | COMMAND CENTER</div>
+    <div class="max-w-7xl mx-auto mb-6 flex justify-between items-center glass-gold p-4 rounded-xl pulse-gold">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold neon-gold">🦅 SENTINEL <span
+                    class="text-xs text-gray-500 align-top">v9.0</span></h1>
+            <p class="text-xs text-gray-500">VALENTINI EDITION — ORDER FLOW SCALPER</p>
         </div>
-        <div class="header-right">
-            <div class="status-indicator" id="connectionStatus">
-                <div class="status-dot connected"></div>
-                <span>LIVE</span>
+        <div class="text-right">
+            <div id="system-status" class="text-emerald-400 font-bold flex items-center justify-end gap-2 text-sm">
+                <span class="w-2.5 h-2.5 bg-emerald-400 rounded-full blink"></span> OPERATIONAL
             </div>
-            <div class="header-time" id="headerTime">--:--:--</div>
-            <div class="header-cycle">CYCLE <span id="cycleCount">-</span></div>
+            <p id="last-update" class="text-xs text-gray-600">SYNCING...</p>
         </div>
-    </header>
+    </div>
+
+    <!-- TOP METRICS ROW -->
+    <div class="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <div class="glass rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500">BALANCE</p>
+            <p id="balance" class="text-xl font-bold neon-gold">$15.00</p>
+        </div>
+        <div class="glass rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500">P&L TOTAL</p>
+            <p id="total-pnl" class="text-xl font-bold text-emerald-400">$0.00</p>
+        </div>
+        <div class="glass rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500">WIN RATE</p>
+            <p id="win-rate" class="text-xl font-bold neon-blue">0%</p>
+        </div>
+        <div class="glass rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500">TRADES</p>
+            <p id="total-trades" class="text-lg font-bold text-white"><span id="wins" class="text-emerald-400">0</span>W
+                / <span id="losses" class="text-red-400">0</span>L</p>
+        </div>
+        <div id="kill-switch-card" class="glass rounded-lg p-3 text-center kill-green col-span-2 md:col-span-1">
+            <p class="text-xs text-gray-500">KILL SWITCH</p>
+            <p id="kill-switch" class="text-xl font-bold text-emerald-400">0/3</p>
+            <p class="text-[0.6rem] text-gray-600">DAILY LOSSES</p>
+        </div>
+    </div>
 
     <!-- MAIN GRID -->
-    <main class="dashboard-grid">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
 
-        <!-- ROW 1: Key Metrics -->
-        <section class="metrics-row">
-            <div class="metric-card balance-card">
-                <div class="metric-label">PORTFOLIO BALANCE</div>
-                <div class="metric-value" id="balance">$---.--</div>
-                <div class="metric-sub" id="pnl">P&L: ---</div>
-                <div class="metric-spark" id="balanceSpark"></div>
+        <!-- MARKET RADAR -->
+        <div class="glass rounded-xl p-4 md:col-span-2">
+            <h2 class="text-sm font-bold text-gray-400 mb-3 flex items-center gap-2">📡 MARKET RADAR <span
+                    class="badge badge-value">AUCTION THEORY</span></h2>
+            <div class="overflow-x-auto scrollbar-hide">
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="text-gray-600 border-b border-gray-800">
+                            <th class="text-left py-2">ASSET</th>
+                            <th class="text-right">PRICE</th>
+                            <th class="text-right">Δ%</th>
+                            <th class="text-center">MARKET STATE</th>
+                            <th class="text-center">RSI</th>
+                            <th class="text-center">SIGNALS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="market-table"></tbody>
+                </table>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">WIN RATE</div>
-                <div class="metric-value" id="winRate">--%</div>
-                <div class="metric-sub" id="winLoss">--W / --L</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">TOTAL TRADES</div>
-                <div class="metric-value" id="totalTrades">--</div>
-                <div class="metric-sub" id="openPositions">-- open</div>
-            </div>
-            <div class="metric-card uptime-card">
-                <div class="metric-label">UPTIME</div>
-                <div class="metric-value" id="uptime">--h --m</div>
-                <div class="metric-sub">NORTHFLANK 24/7</div>
-            </div>
-        </section>
+        </div>
 
-        <!-- ROW 2: Market + Trades -->
-        <section class="content-row">
-            <!-- MARKET PANEL -->
-            <div class="panel market-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">📡</div>
-                    <h2>MARKET OVERVIEW</h2>
-                    <div class="panel-live">LIVE</div>
-                </div>
-                <div class="market-grid" id="marketGrid">
-                    <!-- Filled by JS -->
-                </div>
+        <!-- VALENTINI STATUS -->
+        <div class="glass-gold rounded-xl p-4">
+            <h2 class="text-sm font-bold neon-gold mb-3">🦅 VALENTINI STATUS</h2>
+            <div class="space-y-3 text-xs">
+                <div class="flex justify-between items-center"><span class="text-gray-500">Strategy</span><span
+                        class="text-amber-300">Triple-A + VP</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">AI Model</span><span
+                        class="text-purple-400">Llama 3.3 70B</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">Monte Carlo</span><span
+                        id="mc-sims" class="text-blue-400">80 sims</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">Risk/Trade</span><span
+                        class="text-emerald-400">0.5%</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">Session</span><span
+                        id="session-status" class="text-emerald-400">—</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">NY Cooldown</span><span
+                        id="ny-cooldown" class="text-gray-400">—</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">API Calls</span><span
+                        id="api-calls" class="text-gray-400">—</span></div>
+                <hr class="border-gray-800">
+                <div class="flex justify-between items-center"><span class="text-gray-500">Open Positions</span><span
+                        id="open-pos" class="text-white font-bold">0</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">Daily P&L</span><span
+                        id="daily-pnl" class="text-emerald-400">$0.00</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500">Uptime</span><span
+                        id="uptime" class="text-gray-400">—</span></div>
             </div>
+        </div>
+    </div>
 
-            <!-- TRADES PANEL -->
-            <div class="panel trades-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">📊</div>
-                    <h2>TRADE OPERATIONS</h2>
-                    <div class="panel-badge" id="tradesBadge">0</div>
-                </div>
-                <div class="trades-tabs">
-                    <button class="tab active" data-tab="open">OPEN</button>
-                    <button class="tab" data-tab="closed">HISTORY</button>
-                </div>
-                <div class="trades-list" id="tradesList">
-                    <!-- Filled by JS -->
-                </div>
+    <!-- BOTTOM ROW -->
+    <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <!-- OPEN POSITIONS -->
+        <div class="glass rounded-xl p-4">
+            <h2 class="text-sm font-bold text-gray-400 mb-3">⚡ OPEN POSITIONS</h2>
+            <div id="open-positions-list" class="space-y-2 text-xs">
+                <p class="text-gray-600 text-center py-4">No open positions</p>
             </div>
-        </section>
+        </div>
 
-        <!-- ROW 3: Price Chart + AI Reflections -->
-        <section class="content-row">
-            <!-- PRICE CHART -->
-            <div class="panel chart-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">📈</div>
-                    <h2>PRICE TRACKER</h2>
-                    <div class="chart-filters">
-                        <button class="chart-btn active" data-asset="ORO">ORO</button>
-                        <button class="chart-btn" data-asset="BITCOIN">BTC</button>
-                        <button class="chart-btn" data-asset="ETHEREUM">ETH</button>
-                    </div>
-                </div>
-                <div class="chart-container">
-                    <canvas id="priceChart"></canvas>
-                </div>
-            </div>
+        <!-- TRADE HISTORY -->
+        <div class="glass rounded-xl p-4">
+            <h2 class="text-sm font-bold text-gray-400 mb-3">📜 TRADE HISTORY</h2>
+            <div id="trade-history" class="space-y-1.5 text-xs max-h-48 overflow-y-auto scrollbar-hide"></div>
+        </div>
+    </div>
 
-            <!-- AI REFLECTIONS -->
-            <div class="panel ai-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">🧠</div>
-                    <h2>AI REFLECTIONS</h2>
-                </div>
-                <div class="ai-content" id="aiContent">
-                    <div class="ai-empty">
-                        <div class="ai-brain-icon">🧠</div>
-                        <p>Waiting for auto-reflection data...</p>
-                        <span>Groq analyzes performance every 12 hours</span>
-                    </div>
-                </div>
-            </div>
-        </section>
+    <!-- EQUITY CHART -->
+    <div class="max-w-7xl mx-auto glass rounded-xl p-4 mb-4">
+        <h2 class="text-sm font-bold text-gray-400 mb-3">📈 EQUITY CURVE</h2>
+        <canvas id="equityChart" height="120"></canvas>
+    </div>
 
-        <!-- ROW 4: System Status Bar -->
-        <section class="status-bar">
-            <div class="status-item">
-                <span class="status-label">NORTHFLANK</span>
-                <span class="status-value" id="nfStatus">●</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">SUPABASE</span>
-                <span class="status-value" id="dbStatus">●</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">GROQ AI</span>
-                <span class="status-value" id="aiStatus">●</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">TELEGRAM</span>
-                <span class="status-value" id="tgStatus">●</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">TWELVEDATA</span>
-                <span class="status-value" id="tdStatus">●</span>
-            </div>
-            <div class="status-item last-update">
-                <span class="status-label">LAST UPDATE</span>
-                <span class="status-value" id="lastUpdate">--:--:--</span>
-            </div>
-        </section>
-    </main>
+    <!-- AI REFLECTION -->
+    <div class="max-w-7xl mx-auto glass rounded-xl p-4">
+        <h2 class="text-sm font-bold text-gray-400 mb-3">🧠 AI VALENTINI REFLECTION</h2>
+        <p id="ai-reflection" class="text-xs text-gray-500 leading-relaxed">Waiting for reflection data...</p>
+        <p id="reflection-time" class="text-[0.6rem] text-gray-700 mt-2"></p>
+    </div>
 
-    <script src="/app.js"></script>
+    <p class="text-center text-[0.6rem] text-gray-700 mt-6 mb-2">SENTINEL v9.0 VALENTINI EDITION — ORDER FLOW SCALPER —
+        CEREBRAS AI</p>
+
+    <script>
+        const SUPABASE_URL = 'https://udqxvsgdgxgtnhxxxcgv.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkcXh2c2dkZ3hndG5oeHh4Y2d2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODcwNTM0NCwiZXhwIjoyMDg0MjgxMzQ0fQ.mUKPJvTeG2MU4Fxfddcbcx2Q7H8EDuXcDtWAbHGvT48';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let equityChart = null;
+
+        async function fetchAll() {
+            try {
+                // Portfolio
+                const { data: portfolio } = await sb.from('ghost_portfolio').select('*').order('id', { ascending: false }).limit(1);
+                if (portfolio && portfolio[0]) {
+                    const p = portfolio[0];
+                    const bal = parseFloat(p.balance), start = parseFloat(p.start_balance);
+                    const pnl = bal - start, wr = (p.wins + p.losses) > 0 ? ((p.wins / (p.wins + p.losses)) * 100).toFixed(1) : '0';
+                    document.getElementById('balance').textContent = '$' + bal.toFixed(2);
+                    document.getElementById('total-pnl').textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+                    document.getElementById('total-pnl').className = 'text-xl font-bold ' + (pnl >= 0 ? 'text-emerald-400' : 'text-red-400');
+                    document.getElementById('win-rate').textContent = wr + '%';
+                    document.getElementById('wins').textContent = p.wins;
+                    document.getElementById('losses').textContent = p.losses;
+                    document.getElementById('total-trades').querySelector('#wins').textContent = p.wins;
+                    document.getElementById('total-trades').querySelector('#losses').textContent = p.losses;
+                }
+
+                // Open trades
+                const { data: openTrades } = await sb.from('ghost_trades').select('*').eq('status', 'OPEN').order('opened_at', { ascending: false });
+                const openList = document.getElementById('open-positions-list');
+                document.getElementById('open-pos').textContent = openTrades ? openTrades.length : 0;
+                if (openTrades && openTrades.length > 0) {
+                    openList.innerHTML = openTrades.map(t => {
+                        const icon = t.direction === 'LONG' ? '🟢' : '🔴';
+                        return `<div class="flex justify-between items-center glass rounded-lg p-2">
+                    <div>${icon} <span class="font-bold text-white">${t.direction}</span> ${t.asset}</div>
+                    <div class="text-right"><span class="text-gray-400">@</span> $${parseFloat(t.entry_price).toFixed(2)}<br><span class="text-[0.6rem] text-gray-600">${new Date(t.opened_at).toLocaleString()}</span></div>
+                </div>`;
+                    }).join('');
+                } else { openList.innerHTML = '<p class="text-gray-600 text-center py-4">Esperando el setup perfecto...</p>'; }
+
+                // Closed trades
+                const { data: closedTrades } = await sb.from('ghost_trades').select('*').eq('status', 'CLOSED').order('closed_at', { ascending: false }).limit(15);
+                const histEl = document.getElementById('trade-history');
+                if (closedTrades && closedTrades.length > 0) {
+                    histEl.innerHTML = closedTrades.map(t => {
+                        const pnl = parseFloat(t.pnl);
+                        const icon = pnl >= 0 ? '💰' : '💸';
+                        const color = pnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+                        return `<div class="flex justify-between items-center py-1 border-b border-gray-800/50">
+                    <span>${icon} ${t.direction} ${t.asset}</span>
+                    <span class="${color} font-bold">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(4)}</span>
+                </div>`;
+                    }).join('');
+
+                    // Equity curve
+                    const equityData = [15];
+                    closedTrades.slice().reverse().forEach(t => { equityData.push(equityData[equityData.length - 1] + parseFloat(t.pnl)); });
+                    renderEquityChart(equityData);
+                } else { histEl.innerHTML = '<p class="text-gray-600 text-center py-4">No trades yet</p>'; }
+
+                // Prices (market radar)
+                const { data: prices } = await sb.from('ghost_prices').select('symbol, price, trend, momentum, volatility, recorded_at').order('recorded_at', { ascending: false }).limit(50);
+                const latest = {};
+                if (prices) { prices.forEach(p => { if (!latest[p.symbol]) latest[p.symbol] = p; }); }
+                const tableEl = document.getElementById('market-table');
+                const assets = ['ORO', 'YEN', 'EURO', 'BITCOIN', 'ETHEREUM', 'SOLANA', 'BNB', 'NASDAQ100'];
+                tableEl.innerHTML = assets.map(name => {
+                    const d = latest[name];
+                    if (!d) return `<tr class="border-b border-gray-800/30"><td class="py-1.5 text-gray-600">${name}</td><td colspan="5" class="text-center text-gray-700">—</td></tr>`;
+                    const mom = parseFloat(d.momentum || 0);
+                    const vol = parseFloat(d.volatility || 0);
+                    const momColor = mom > 0 ? 'text-emerald-400' : mom < 0 ? 'text-red-400' : 'text-gray-500';
+                    // Determine market state from trend
+                    let state = 'BALANCED', stateBadge = 'badge-value';
+                    if (d.trend === 'FUERTE ALCISTA' || d.trend === 'EXPLORING_HIGH') { state = 'EXPLORING ↑'; stateBadge = 'badge-explore'; }
+                    else if (d.trend === 'FUERTE BAJISTA' || d.trend === 'EXPLORING_LOW') { state = 'EXPLORING ↓'; stateBadge = 'badge-aggr'; }
+                    else if (d.trend === 'ALCISTA') { state = 'BULLISH'; stateBadge = 'badge-explore'; }
+                    else if (d.trend === 'BAJISTA') { state = 'BEARISH'; stateBadge = 'badge-aggr'; }
+                    // RSI approx from momentum
+                    const rsiApprox = Math.max(20, Math.min(80, 50 + mom * 10)).toFixed(0);
+                    const rsiColor = rsiApprox > 65 ? 'text-red-400' : rsiApprox < 35 ? 'text-emerald-400' : 'text-gray-400';
+                    // Signals
+                    let signals = '';
+                    if (vol > 1.5) signals += '<span class="badge badge-aggr">⚡AGR</span> ';
+                    if (vol < 0.3 && vol > 0) signals += '<span class="badge badge-absorb">🧲ABS</span> ';
+                    return `<tr class="border-b border-gray-800/30 hover:bg-white/5">
+                <td class="py-1.5 font-bold text-white">${name}</td>
+                <td class="text-right text-gray-300">$${parseFloat(d.price).toFixed(d.price > 100 ? 2 : 4)}</td>
+                <td class="text-right ${momColor}">${mom > 0 ? '+' : ''}${mom.toFixed(2)}%</td>
+                <td class="text-center"><span class="badge ${stateBadge}">${state}</span></td>
+                <td class="text-center ${rsiColor}">${rsiApprox}</td>
+                <td class="text-center">${signals || '<span class="text-gray-700">—</span>'}</td>
+            </tr>`;
+                }).join('');
+
+                // Reflection
+                const { data: reflections } = await sb.from('ghost_reflections').select('*').order('created_at', { ascending: false }).limit(1);
+                if (reflections && reflections[0]) {
+                    document.getElementById('ai-reflection').textContent = reflections[0].analysis;
+                    document.getElementById('reflection-time').textContent = 'Last: ' + new Date(reflections[0].created_at).toLocaleString();
+                }
+
+                // Session status
+                const h = new Date().getUTCHours();
+                const isActive = h >= 7 && h <= 22;
+                const isOverlap = h >= 13 && h <= 16;
+                document.getElementById('session-status').textContent = isOverlap ? 'OVERLAP (GOLDEN)' : isActive ? 'ACTIVE' : 'CLOSED';
+                document.getElementById('session-status').className = isOverlap ? 'text-amber-400 font-bold' : isActive ? 'text-emerald-400' : 'text-red-400';
+
+                // NY cooldown
+                const m = new Date().getUTCMinutes();
+                const nyCooldown = (h === 14 && m >= 30) || (h === 15 && m < 0);
+                document.getElementById('ny-cooldown').textContent = nyCooldown ? 'ACTIVE ⏳' : 'OFF';
+                document.getElementById('ny-cooldown').className = nyCooldown ? 'text-amber-400' : 'text-gray-500';
+
+                document.getElementById('last-update').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+            } catch (e) { console.error('Fetch error:', e); }
+        }
+
+        function renderEquityChart(data) {
+            const ctx = document.getElementById('equityChart').getContext('2d');
+            if (equityChart) equityChart.destroy();
+            const lastVal = data[data.length - 1];
+            const color = lastVal >= 15 ? 'rgba(52,211,153,' : 'rgba(248,113,113,';
+            equityChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: data.map((_, i) => i === 0 ? 'Start' : '#' + i), datasets: [{ data, borderColor: color + '1)', backgroundColor: color + '0.1)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 }] },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#555', callback: v => '$' + v.toFixed(2) } } } }
+            });
+        }
+
+        fetchAll();
+        setInterval(fetchAll, 30000);
+    </script>
 </body>
 
 </html>
